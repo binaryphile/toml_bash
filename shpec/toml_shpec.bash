@@ -742,6 +742,12 @@ describe toml.Lex
     toml.Lex ' key'
     assert unequal "${TOKENS[0]:-}" WS
   ti
+
+  it "lexes two tokens with ws"
+    toml.Lex 'key ='
+    expecteds=( UNQUOTED_KEY KEYVAL_SEP )
+    assert equal "${TOKENS[*]}" "${expecteds[*]}"
+  ti
 end_describe
 
 # describe toml.parse
