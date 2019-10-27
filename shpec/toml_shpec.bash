@@ -728,10 +728,9 @@ describe toml.Match
 end_describe
 
 describe toml.Lex
-  it "lexes an unquoted key/basic string pair"
-    toml.Lex 'key = "value"'
-    expecteds=( UNQUOTED_KEY KEYVAL_SEP BASIC_STR )
-    assert equal "${TOKENS[*]}" "${expecteds[*]}"
+  it "calls lexes the first element of a line"
+    toml.Lex key
+    assert equal ${TOKENS[0]} UNQUOTED_KEY
   ti
 end_describe
 

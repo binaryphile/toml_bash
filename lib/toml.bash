@@ -2,19 +2,8 @@ toml.Lex () {
   local line=$1
   local token value
 
-  while [[ -n $line ]]; do
-    toml.Match token value $line
-    [[ -n $value ]] || break
-    case $token in
-      WS ) ;;
-      * )
-        TOKENS[NEXT]=$token
-        VALUES[NEXT]=$value
-        ;;
-    esac
-    line=${line#$value}
-    NEXT+=1
-  done
+  toml.Match token value $line
+  TOKENS[0]=$token
 }
 
 toml.Match () {
