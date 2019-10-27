@@ -1,3 +1,11 @@
+toml.parse () {
+  AST[0]=TOML
+  CHILDREN0[0]=1
+  AST[1]=EXPRESSION
+  CHILDREN1[0]=2
+  AST[2]=KEYVAL
+}
+
 toml.Lex () {
   local line=$1
   local token value
@@ -81,6 +89,9 @@ declare -A EXPRS=()
 declare -A BOOLEAN=()
 TOKENS=()
 VALUES=()
+AST=()
+CHILDREN0=()
+CHILDREN1=()
 
 toml.ReadHash BOOLEAN <<'END'
   true  1
