@@ -5,6 +5,8 @@ SHPEC_PARENT=$(dirname $BASH_SOURCE)/..
 source $SHPEC_PARENT/shpec/shpec-helper.bash
 source $SHPEC_PARENT/lib/toml.bash
 
+STREAM_START=0
+
 chars () {
   local -n Chars=$1
   shift
@@ -12,37 +14,223 @@ chars () {
   Chars=$(printf $(printf '\\x%X' $*))
 }
 
-describe toml.parse
-  it "parses an empty string"
-    toml.parse ''
-    assert equal "${AST[0]}" TOML
+describe "toml.ParseTree single rule"
+  alias setup='
+    children=()
+    TOML=( EXPRESSION )
+    toml.NewNode root TOML
+    toml.NewNode token EXPRESSION'
+
+  it "sets the terminal as the only child of the root"
+    toml.StreamAdd $token
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $root
+    assert equal "${children[*]}" 1
   ti
 
-  it "parses a key-value pair at the top-level"
-    toml.parse 'key = "value"'
-    assert equal "${AST[0]}" TOML
+  it "sets the parent of the terminal"
+    toml.StreamAdd $token
+    toml.ParseTree $root $STREAM_START
+    toml.Parent parent $token
+    assert equal $parent 0
   ti
 
-  it "parses the children at the top level"
-    toml.parse 'key = "value"'
-    assert equal "${CHILDREN0[0]}" 1
+  it "has no children for the terminal"
+    toml.StreamAdd $token
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $token
+    assert equal ${#children[*]} 0
   ti
 
-  it "parses a key-value pair at the expression level"
-    toml.parse 'key = "value"'
-    assert equal "${AST[1]}" EXPRESSION
-  ti
-
-  it "parses the children at the keyval level"
-    toml.parse 'key = "value"'
-    assert equal "${CHILDREN1[0]}" 2
-  ti
-
-  it "parses a key-value pair at the keyval level"
-    toml.parse 'key = "value"'
-    assert equal "${AST[2]}" KEYVAL
+  it "errors on a non-match"
+    toml.NewNode other OTHER
+    toml.StreamAdd $other
+    ! toml.ParseTree $root $STREAM_START
+    assert equal $? 0
   ti
 end_describe
+
+describe "toml.ParseTree two rules"
+  alias setup='
+    children=()
+    TOML=( EXPRESSION )
+    EXPRESSION=( NUMBER )
+    toml.NewNode root TOML
+    toml.NewNode token NUMBER'
+
+  it "sets the intermediate as the only child of the root"
+    toml.StreamAdd $token
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $root
+    assert equal "${children[*]}" 2
+  ti
+
+  it "sets the parent of the intermediate"
+    toml.StreamAdd $token
+    toml.ParseTree $root $STREAM_START
+    toml.Parent parent 2
+    assert equal $parent 0
+  ti
+
+  it "sets the terminal as the only child of the intermediate"
+    toml.StreamAdd $token
+    toml.ParseTree $root $STREAM_START
+    toml.Children children 2
+    assert equal "${children[*]}" 1
+  ti
+
+  it "sets the parent of the terminal"
+    toml.StreamAdd $token
+    toml.ParseTree $root $STREAM_START
+    toml.Parent parent $token
+    assert equal $parent 2
+  ti
+
+  it "errors on a non-match"
+    toml.NewNode other OTHER
+    toml.StreamAdd $other
+    ! toml.ParseTree $root $STREAM_START
+    assert equal $? 0
+  ti
+end_describe
+
+describe "toml.ParseTree binary rule"
+  it "has two children of the root"
+    TOML=( "SIGN NUMBER" )
+    toml.NewNode sign SIGN
+    toml.NewNode number NUMBER
+    toml.NewNode root TOML
+    toml.StreamAdd $sign $number
+
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $root
+
+    expecteds=( 2 3 )
+    assert equal "${children[*]}" "${expecteds[*]}"
+  ti
+end_describe
+
+describe "toml.ParseTree ternary rule"
+  it "has three children of the root"
+    TOML=( "KEY SEP VAL" )
+    toml.NewNode key KEY
+    toml.NewNode sep SEP
+    toml.NewNode val VAL
+    toml.NewNode root TOML
+    toml.StreamAdd $key $sep $val
+
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $root
+
+    expecteds=( 2 3 4 )
+    assert equal "${children[*]}" "${expecteds[*]}"
+  ti
+end_describe
+
+describe "toml.ParseTree simple alternatives"
+  alias setup='
+    TOML=( FIRST SECOND )
+    toml.NewNode first FIRST
+    toml.NewNode second SECOND
+    toml.NewNode root TOML'
+
+  it "chooses the first rule"
+    toml.StreamAdd $first
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $root
+
+    assert equal "${children[*]}" 0
+  ti
+
+  it "chooses the second rule"
+    toml.StreamAdd $second
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $root
+
+    assert equal "${children[*]}" 1
+  ti
+end_describe
+
+describe "toml.ParseTree multipart alternatives"
+  alias setup='
+    TOML=( "FIRST SECOND" "FIRST THIRD" )
+    toml.NewNode first FIRST
+    toml.NewNode second SECOND
+    toml.NewNode third THIRD
+    toml.NewNode root TOML'
+
+  it "backtracks on a partial match"
+    toml.StreamAdd $first $third
+    toml.ParseTree $root $STREAM_START
+    toml.Children children $root
+
+    expecteds=( 0 2 )
+    assert equal "${children[*]}" "${expecteds[*]}"
+  ti
+end_describe
+
+# describe toml.parse
+#   it "parses an empty string"
+#     toml.parse ''
+#     assert equal "${AST[0]}" TOML
+#   ti
+#
+#   it "parses a key-value pair at the top-level"
+#     toml.parse 'key = "value"'
+#     assert equal "${AST[0]}" TOML
+#   ti
+#
+#   it "parses the children at the top level"
+#     toml.parse 'key = "value"'
+#     assert equal "${CHILDREN0[0]}" 1
+#   ti
+#
+#   it "parses a key-value pair at the expression level"
+#     toml.parse 'key = "value"'
+#     assert equal "${AST[1]}" EXPRESSION
+#   ti
+#
+#   it "parses the children at the keyval level"
+#     toml.parse 'key = "value"'
+#     assert equal "${CHILDREN1[0]}" 2
+#   ti
+#
+#   it "parses a key-value pair at the keyval level"
+#     toml.parse 'key = "value"'
+#     assert equal "${AST[2]}" KEYVAL
+#   ti
+#
+#   it "parses the children at the key level"
+#     toml.parse 'key = "value"'
+#     expecteds=( 3 4 5 )
+#     assert equal "${CHILDREN2[*]}" "${expecteds[*]}"
+#   ti
+#
+#   it "parses a key at the key level"
+#     toml.parse 'key = "value"'
+#     assert equal "${AST[3]}" KEYVAL
+#   ti
+#
+#   it "parses a keyval-sep at the key level"
+#     toml.parse 'key = "value"'
+#     assert equal "${AST[4]}" KEYVAL_SEP
+#   ti
+#
+#   it "parses a val at the key level"
+#     toml.parse 'key = "value"'
+#     assert equal "${AST[5]}" VAL
+#   ti
+#
+#   it "parses the children at the val level"
+#     toml.parse 'key = "value"'
+#     assert equal "${CHILDREN3[0]}" 6
+#   ti
+#
+#   it "parses a val at the val level"
+#     toml.parse 'key = "value"'
+#     assert equal "${AST[6]}" STRING
+#   ti
+# end_describe
 
 # describe NL
 #   it "is newline"
@@ -762,7 +950,7 @@ end_describe
 # describe toml.Lex
 #   it "lexes the first token of a line"
 #     toml.Lex key
-#     assert equal ${TOKENS[0]} UNQUOTED_KEY
+#     assert equal ${TERMINALS[0]} UNQUOTED_KEY
 #   ti
 #
 #   it "lexes the first value of a line"
@@ -772,12 +960,12 @@ end_describe
 #
 #   it "removes preceding whitespace"
 #     toml.Lex ' key'
-#     assert unequal "${TOKENS[0]:-}" WS
+#     assert unequal "${TERMINALS[0]:-}" WS
 #   ti
 #
 #   it "lexes two tokens with ws"
 #     toml.Lex 'key ='
 #     expecteds=( UNQUOTED_KEY KEYVAL_SEP )
-#     assert equal "${TOKENS[*]}" "${expecteds[*]}"
+#     assert equal "${TERMINALS[*]}" "${expecteds[*]}"
 #   ti
 # end_describe

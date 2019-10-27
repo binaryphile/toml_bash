@@ -1,11 +1,38 @@
-toml.parse () {
-  AST[0]=TOML
-  CHILDREN0[0]=1
-  AST[1]=EXPRESSION
-  CHILDREN1[0]=2
-  AST[2]=KEYVAL
+shopt -s expand_aliases
+
+ret () {
+  $3 $1 $4
 }
 
+@ReturnVars () {
+  local arg
+
+  for arg; do
+    alias $arg="ret $arg"
+  done
+}
+
+# AddChild adds a node to a parent node's array of children
+toml.AddChild () {
+  local parent=$1 child=$2
+  local -n children=CHILDREN$parent
+
+  children+=( $child )
+  toml.SetParent $child $parent
+}
+
+# Children returns a copy of a node's array of child nodes
+toml.Children () {
+  local -n Result=$1
+  local -n Children=CHILDREN$2
+  local Child
+
+  for Child in ${Children[*]:-}; do
+    Result+=( $Child )
+  done
+}
+
+# Lex takes a line and adds the next token to the stream
 toml.Lex () {
   local line=$1
   local token value
@@ -15,7 +42,7 @@ toml.Lex () {
     case $token in
       WS ) ;;
       * )
-        TOKENS[NEXT]=$token
+        TERMINALS[NEXT]=$token
         VALUES[NEXT]=$value
         ;;
     esac
@@ -48,18 +75,102 @@ toml.Match () {
   done
 }
 
+toml.NextId () {
+  local -n Id=$1
+
+  Id=$NEXT
+  NEXT+=1
+}
+
+toml.NewNode () {
+  local -n Id=$1
+  local Element=$2
+
+  toml.NextId $1
+
+  TYPES[Id]=$Element
+  PARENTS[Id]=''
+  declare -ag CHILDREN$Id="()"
+}
+
+toml.Parent () {
+  local -n Parent=$1
+
+  Parent=${PARENTS[$2]}
+}
+
+# ParseTree parses the next token by applying the rule represented by the
+# supplied node.
+@ReturnVars newNode nodeType token tokenType
+toml.ParseTree () {
+  # node is the id of the current tree element, corresponding to a rule or
+  # terminal
+  local node=$1
+
+  # pos is the position in the token stream
+  local -i pos=$2
+
+  local i newNode nodeType rule token tokenType type
+
+  token := toml.StreamFind $pos
+  tokenType := toml.Type $token
+  nodeType := toml.Type $node
+
+  # find the corresponding rules array
+  local -n rules=$nodeType
+
+  # go through each rule as necessary
+  for rule in ${rules[*]}; do
+    local -a items="( $rule )"
+
+    # go through each token in a rule
+    for (( i = 0; i < ${#items[*]}; i++ )); do
+      [[ ${items[i]} == $tokenType ]] && {
+        toml.AddChild $node $token
+
+        # end if rule is done
+        (( i + 1 == ${#items[*]} )) && return
+
+        # more tokens in rule
+        pos+=1
+        token := toml.StreamFind $pos
+        tokenType := toml.Type $token
+        continue
+      }
+
+      ! toml.Terminal? ${items[i]} || continue
+
+      # the rule doesn't apply, make a new child node for the rule's element and
+      # recurse
+      newNode := toml.NewNode ${items[i]}
+      toml.AddChild $node $newNode
+      toml.ParseTree $newNode pos+i
+      return
+    done
+  done
+  return 1
+}
+
 toml.ReadHash () {
   local -n Result=$1
   local Indent Key Line
 
   while read -r Line; do
     [[ -z $Line ]] && continue
+
+    # strip indent
     Indent=${Line%%[^[:space:]]*}
     Line=${Line#$Indent}
-    Key=${Line%% *}
-    Line=${Line#$Key}
+
+    # find key
+    Key=${Line%%:*}
+    Line=${Line#$Key:}
+
+    # strip whitespace before value
     Indent=${Line%%[^[:space:]]*}
     Line=${Line#$Indent}
+
+    # strip trailing whitespace and find value
     Indent=${Line##*[^[:space:]]}
     Result[$Key]=${Line%$Indent}
   done
@@ -76,26 +187,73 @@ toml.ReadHeredoc () {
 }
 
 toml.Readlns () {
-  IFS=$NL read -rd '' $1 ||:
+  ! IFS=$NL read -rd '' $1;:
 }
 
-# Globals
+toml.Set? () {
+  declare -p $1 &>/dev/null
+}
+
+toml.SetParent () {
+  PARENTS[$1]=$2
+}
+
+toml.StreamDone? () {
+  local pos=$1
+
+  (( pos + 1 >= ${#STREAM[*]} ))
+}
+
+toml.StreamAdd () {
+  STREAM+=( $* )
+}
+
+toml.StreamFind () {
+  local -n Token=$1
+  local Pos=$2
+
+  Token=${STREAM[$Pos]}
+}
+
+toml.Terminal? () {
+  ! declare -p $1 &>/dev/null
+}
+
+toml.Type () {
+  local -n Type=$1
+
+  Type=${TYPES[$2]}
+}
+
+# globals
+# NEXT is the next node id for assignment
 declare -i NEXT=0
 
-# Constants
-NL=$'\n'
-TAB=$'\t'
-declare -A EXPRS=()
-declare -A BOOLEAN=()
-TOKENS=()
+# TERMINALS are the tokens added to the stream
+TERMINALS=()
+
+# STREAM is the array of node ids of tokens from the lexer
+STREAM=()
+
+# VALUES is the array of values associated with tokens
 VALUES=()
-AST=()
-CHILDREN0=()
-CHILDREN1=()
+
+# constants
+# NL is newline
+NL=$'\n'
+
+# TAB is tab
+TAB=$'\t'
+
+# EXPRS is the hash of expressions for the lexer to recognize tokens
+declare -A EXPRS=()
+
+# BOOLEAN is a hash of "true" and "false" to numerical values
+declare -A BOOLEAN=()
 
 toml.ReadHash BOOLEAN <<'END'
-  true  1
-  false 0
+  true:   1
+  false:  0
 END
 
 toml.ReadHeredoc NONEOL <<END
@@ -150,12 +308,16 @@ toml.ReadHeredoc SIMPLE_KEY <<END
   ($QUOTED_KEY|$UNQUOTED_KEY)
 END
 
+DOT_SEP=.
+
 toml.ReadHash EXPRS <<END
-  KEYVAL_SEP    =
-  WS            [[:blank:]]+
-  COMMENT       #$NONEOL*
-  BOOL          true|false
-  BASIC_STR     $BASIC_STR
-  LITERAL_STR   $LITERAL_STR
-  UNQUOTED_KEY  $UNQUOTED_KEY
+  KEYVAL_SEP:   =
+  DOT_SEP:      $DOT_SEP
+  WS:           [[:blank:]]+
+  COMMENT:      #$NONEOL*
+  BOOL:         true|false
+  BASIC_STR:    $BASIC_STR
+  LITERAL_STR:  $LITERAL_STR
+  UNQUOTED_KEY: $UNQUOTED_KEY
+  DOTTED_KEY:   $SIMPLE_KEY($DOT_SEP$SIMPLE_KEY)+
 END
