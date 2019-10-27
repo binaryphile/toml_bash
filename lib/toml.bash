@@ -3,8 +3,13 @@ toml.Lex () {
   local token value
 
   toml.Match token value $line
-  TOKENS[0]=$token
-  VALUES[0]=$value
+  case $token in
+    WS ) ;;
+    * )
+      TOKENS[0]=$token
+      VALUES[0]=$value
+      ;;
+  esac
 }
 
 toml.Match () {

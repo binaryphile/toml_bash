@@ -737,6 +737,11 @@ describe toml.Lex
     toml.Lex key
     assert equal ${VALUES[0]} key
   ti
+
+  it "removes preceding whitespace"
+    toml.Lex ' key'
+    assert unequal "${TOKENS[0]:-}" WS
+  ti
 end_describe
 
 # describe toml.parse
