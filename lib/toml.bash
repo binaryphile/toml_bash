@@ -4,6 +4,7 @@ toml.Lex () {
 
   toml.Match token value $line
   TOKENS[0]=$token
+  VALUES[0]=$value
 }
 
 toml.Match () {

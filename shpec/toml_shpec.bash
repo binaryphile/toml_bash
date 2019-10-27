@@ -728,9 +728,14 @@ describe toml.Match
 end_describe
 
 describe toml.Lex
-  it "calls lexes the first element of a line"
+  it "lexes the first token of a line"
     toml.Lex key
     assert equal ${TOKENS[0]} UNQUOTED_KEY
+  ti
+
+  it "lexes the first value of a line"
+    toml.Lex key
+    assert equal ${VALUES[0]} key
   ti
 end_describe
 
