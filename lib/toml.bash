@@ -1,6 +1,6 @@
 shopt -s expand_aliases
 
-ret () {
+Ret () {
   $3 $1 $4
 }
 
@@ -8,28 +8,60 @@ ret () {
   local arg
 
   for arg; do
-    alias $arg="ret $arg"
+    alias $arg="Ret $arg"
   done
 }
 
-# AddChild adds a node to a parent node's array of children
-toml.AddChild () {
-  local parent=$1 child=$2
+# AddChildren adds a node to a parent node's array of children
+toml.AddChildren () {
+  local parent=$1; shift
   local -n children=CHILDREN$parent
+  local child
 
-  children+=( $child )
-  toml.SetParent $child $parent
+  children+=( $* )
+  for child; do
+    toml.SetParent $child $parent
+  done
 }
 
 # Children returns a copy of a node's array of child nodes
 toml.Children () {
   local -n Result=$1
   local -n Children=CHILDREN$2
-  local Child
 
-  for Child in ${Children[*]:-}; do
-    Result+=( $Child )
-  done
+  Result=( ${Children[*]:-} )
+}
+
+@ReturnVars nodeType
+toml.EvalTree () {
+  local nodeType
+
+  nodeType := toml.Type $1
+  toml.$nodeType $1
+}
+
+@ReturnVars child
+toml.EXPRESSION () {
+  local child
+
+  child := toml.Children $1
+  toml.EvalTree $child
+}
+
+@ReturnVars child
+toml.KEY () {
+  local child
+
+  child := toml.Children $1
+  toml.EvalTree $child
+}
+
+@ReturnVars child
+toml.KEYVAL () {
+  local child
+
+  child := toml.Children $1
+  toml.EvalTree $child
 }
 
 # Lex takes a line and adds the next token to the stream
@@ -85,12 +117,14 @@ toml.NextId () {
 toml.NewNode () {
   local -n Id=$1
   local Element=$2
+  local Value=${3:-}
 
   toml.NextId $1
 
   TYPES[Id]=$Element
   PARENTS[Id]=''
   declare -ag CHILDREN$Id="()"
+  VALUES[Id]=$Value
 }
 
 toml.Parent () {
@@ -112,9 +146,9 @@ toml.ParseTree () {
 
   local i newNode nodeType rule token tokenType type
 
-  token := toml.StreamFind $pos
+  token     := toml.StreamFind $pos
   tokenType := toml.Type $token
-  nodeType := toml.Type $node
+  nodeType  := toml.Type $node
 
   # find the corresponding rules array
   local -n rules=$nodeType
@@ -126,24 +160,24 @@ toml.ParseTree () {
     # go through each token in a rule
     for (( i = 0; i < ${#items[*]}; i++ )); do
       [[ ${items[i]} == $tokenType ]] && {
-        toml.AddChild $node $token
+        toml.AddChildren $node $token
 
         # end if rule is done
         (( i + 1 == ${#items[*]} )) && return
 
         # more tokens in rule
         pos+=1
-        token := toml.StreamFind $pos
+        token     := toml.StreamFind $pos
         tokenType := toml.Type $token
         continue
       }
 
-      ! toml.Terminal? ${items[i]} || continue
+      toml.Terminal? ${items[i]} && continue
 
       # the rule doesn't apply, make a new child node for the rule's element and
       # recurse
       newNode := toml.NewNode ${items[i]}
-      toml.AddChild $node $newNode
+      toml.AddChildren $node $newNode
       toml.ParseTree $newNode pos+i
       return
     done
@@ -198,6 +232,14 @@ toml.SetParent () {
   PARENTS[$1]=$2
 }
 
+@ReturnVars child
+toml.SIMPLE_KEY () {
+  local child
+
+  child := toml.Children $1
+  toml.EvalTree $child
+}
+
 toml.StreamDone? () {
   local pos=$1
 
@@ -219,10 +261,32 @@ toml.Terminal? () {
   ! declare -p $1 &>/dev/null
 }
 
+@ReturnVars child
+toml.TOML () {
+  local child
+
+  child := toml.Children $1
+  toml.EvalTree $child
+}
+
 toml.Type () {
   local -n Type=$1
 
   Type=${TYPES[$2]}
+}
+
+@ReturnVars child
+toml.UNQUOTED_KEY () {
+  local child
+
+  child := toml.Children $1
+  toml.EvalTree $child
+}
+
+toml.Value () {
+  local -n Value=$1
+
+  Value=${VALUES[$2]}
 }
 
 # globals

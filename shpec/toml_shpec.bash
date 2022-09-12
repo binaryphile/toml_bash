@@ -169,6 +169,34 @@ describe "toml.ParseTree multipart alternatives"
   ti
 end_describe
 
+describe "toml.EvalTree simple key value"
+  alias setup='
+    toml.NewNode root       TOML
+    toml.NewNode expr       EXPRESSION
+    toml.NewNode keyval     KEYVAL
+    toml.NewNode key        KEY
+    toml.NewNode simpkey    SIMPLE_KEY
+    toml.NewNode unqkey     UNQUOTED_KEY sample
+    toml.NewNode kvsep      KEYVAL_SEP
+    toml.NewNode val        VAL
+    toml.NewNode int        INTEGER
+    toml.NewNode dint       DEC_INT
+    toml.NewNode udint      UNSIGNED_DEC_INT 1
+    toml.AddChildren        $root $expr
+    toml.AddChildren        $expr $keyval
+    toml.AddChildren        $keyval $key $kvsep $val
+    toml.AddChildren        $key $simpkey
+    toml.AddChildren        $simpkey $unqkey
+    toml.AddChildren        $val $int
+    toml.AddChildren        $int $dint
+    toml.AddChildren        $dint $udint'
+
+    it "generates the variable"
+      toml.EvalTree $root
+      assert equal $sample 1
+    ti
+end_describe
+
 # describe toml.parse
 #   it "parses an empty string"
 #     toml.parse ''
